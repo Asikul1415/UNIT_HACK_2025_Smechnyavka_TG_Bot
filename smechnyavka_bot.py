@@ -1,7 +1,5 @@
 import asyncio
 import json
-from os import getenv
-import time
 import aiohttp
 
 from aiogram import Bot, Dispatcher
