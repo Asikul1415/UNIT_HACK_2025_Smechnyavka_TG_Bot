@@ -19,6 +19,7 @@ class Form(StatesGroup):
     get_nickname = State()
     wait_for_answer = State()
     voting = State()
+    voted = State()
     ended = State()
 
 
@@ -31,13 +32,10 @@ async def command_start_handler(message: Message, state: FSMContext) -> None:
 
 @dp.message(Form.get_nickname)
 async def process_nickname(message: Message, state: FSMContext) -> None:
-    global groups_count
 
     await send_user_info(message.chat.id, message.text)
     await message.answer(f"{message.text}, вы в лобби. Ожидайте начала игры.")
     await process_question(message.chat.id, state)
-    
-    groups_count = await get_groups_count()
 
 @dp.message(Form.wait_for_answer)
 async def process_answer(message: Message, state: FSMContext) -> None:
@@ -52,17 +50,27 @@ async def process_answer(message: Message, state: FSMContext) -> None:
 @dp.message(Form.voting)
 async def process_answer(message: Message, state: FSMContext) -> None:
     global groups_count
+    groups_count = await get_groups_count()
 
+    if(message.chat.id == answers["answer0"]["telegram_id"] or message.chat.id == answers["answer1"]["telegram_id"]):
+        return
+    
     if(message.text == "#1"):
         await send_vote(message.chat.id, answers["answer0"]["telegram_id"])
     elif(message.text == "#2"):
         await send_vote(message.chat.id, answers["answer1"]["telegram_id"])
 
+    await state.set_state(Form.voted)
     if(groups_count > 0):
         await send_answers_to_user(message.chat.id, state)
     else:
         await message.answer("Игра закончена!")
         await state.set_state(Form.ended)
+
+@dp.message(Form.voted)
+async def process_answer(message: Message, state: FSMContext) -> None:
+    message.reply("Вы уже голосовали!")
+    await send_answers_to_user(message.chat.id, state)
 
 
 
@@ -92,7 +100,6 @@ async def get_groups_count() -> int:
     return json["count"]
 
 async def get_answers() -> dict:
-    global groups_count
     global answers
 
     url = f"https://unit-hack-2025.onrender.com/game/api/answer/"
@@ -103,7 +110,6 @@ async def get_answers() -> dict:
         answers = await response.json()
         print(f"При получении пары ответов получили код {response.status}")
 
-    groups_count -= 1
     return answers
   
     
