@@ -53,6 +53,7 @@ async def process_answer(message: Message, state: FSMContext) -> None:
     groups_count = await get_groups_count()
 
     if(message.chat.id == answers["answer0"]["telegram_id"] or message.chat.id == answers["answer1"]["telegram_id"]):
+        await message.reply("Вы не можете голосовать. Люди судят ваш ответ.")
         return
     
     if(message.text == "#1"):
