@@ -14,3 +14,7 @@
 <li>aiohttp</li>
 <li>json</li>
 
+<h3>Пример работы: </h3>
+<img src="https://i.ibb.co/tTH46FWP/image.png">
+<img src="https://i.ibb.co/rfLrjXYf/image.png">
+
