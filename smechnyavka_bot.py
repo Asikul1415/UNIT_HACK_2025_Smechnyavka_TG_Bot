@@ -99,6 +99,7 @@ async def get_answers() -> dict:
 
     async with aiohttp.ClientSession() as session:
         response = await session.get(url)
+        print(await response.json())
         answers = await response.json()
         print(f"При получении пары ответов получили код {response.status}")
 
@@ -109,14 +110,15 @@ async def get_answers() -> dict:
 async def send_answers_to_user(user_id: int, state: FSMContext):
     global answers 
     answers = await get_answers()
+    print(answers)
 
     first_button = KeyboardButton(text="#1")
     second_button = KeyboardButton(text="#2")
     keyboard = ReplyKeyboardMarkup(keyboard=[[first_button, second_button]],resize_keyboard=True)
 
-    await bot.send_message(user_id, text="Вопрос: " + answers["question"])
-    await bot.send_message(user_id, f"Ответ 1 от {answers["answer1"]["username"]}: {answers["answer1"]["answer"]}")
-    await bot.send_message(user_id, f"Ответ 2 от {answers["answer2"]["username"]}: {answers["answer2"]["answer"]}", reply_markup=keyboard)
+    await bot.send_message(user_id, text="Вопрос: " + answers["prompt"])
+    await bot.send_message(user_id, f"Ответ 1 от {answers["answer0"]["telegram_id"]}: {answers["answer0"]["answer"]}")
+    await bot.send_message(user_id, f"Ответ 2 от {answers["answer1"]["telegram_id"]}: {answers["answer1"]["answer"]}", reply_markup=keyboard)
 
     await state.set_state(Form.voting)    
 
