@@ -54,9 +54,9 @@ async def process_answer(message: Message, state: FSMContext) -> None:
     global groups_count
 
     if(message.text == "#1"):
-        await send_vote(message.chat.id, answers["answer1"]["user_id"])
+        await send_vote(message.chat.id, answers["answer0"]["telegram_id"])
     elif(message.text == "#2"):
-        await send_vote(message.chat.id, answers["answer2"]["user_id"])
+        await send_vote(message.chat.id, answers["answer1"]["telegram_id"])
 
     if(groups_count > 0):
         await send_answers_to_user(message.chat.id, state)
@@ -103,6 +103,7 @@ async def get_answers() -> dict:
         answers = await response.json()
         print(f"При получении пары ответов получили код {response.status}")
 
+    groups_count -= 1
     return answers
   
     
@@ -110,7 +111,6 @@ async def get_answers() -> dict:
 async def send_answers_to_user(user_id: int, state: FSMContext):
     global answers 
     answers = await get_answers()
-    print(answers)
 
     first_button = KeyboardButton(text="#1")
     second_button = KeyboardButton(text="#2")
