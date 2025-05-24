@@ -1,6 +1,6 @@
 import asyncio
+import websockets
 import json
-import aiohttp
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -9,8 +9,13 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from config import TOKEN
 
-global bot
+global websocket
+
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+
+event_loop = asyncio.get_event_loop()
 
 answers = {}
 groups_count = 0
@@ -35,7 +40,7 @@ async def process_nickname(message: Message, state: FSMContext) -> None:
 
     await send_user_info(message.chat.id, message.text)
     await message.answer(f"{message.text}, вы в лобби. Ожидайте начала игры.")
-    await process_question(message.chat.id, state)
+    await process_question(state)
 
 @dp.message(Form.wait_for_answer)
 async def process_answer(message: Message, state: FSMContext) -> None:
@@ -43,9 +48,7 @@ async def process_answer(message: Message, state: FSMContext) -> None:
     await send_user_answer(message.chat.id, answer)
     await message.answer(f"Ваш ответ записан. Ожидаем других игроков.")
 
-    await send_answers_to_user(message.chat.id, state)
-
-    
+    #await send_answers_to_user(message.chat.id, state)
 
 @dp.message(Form.voting)
 async def process_answer(message: Message, state: FSMContext) -> None:
@@ -75,49 +78,28 @@ async def process_answer(message: Message, state: FSMContext) -> None:
 
 
 
-async def process_question(user_id: int, state: FSMContext) -> None:
-    question = await get_question(user_id)
-    await bot.send_message(user_id, question)
+async def process_question(state: FSMContext) -> None:
+    await get_question()
     await state.set_state(Form.wait_for_answer)
 
-async def get_question(user_id: int) -> str:
-    url = f"https://unit-hack-2025.onrender.com/game/api/prompt?telegram_id={user_id}"
-
-    async with aiohttp.ClientSession() as session:
-        response = await session.get(url)
-        json = await response.json()
-        print(f"При получении вопроса для пользователя {user_id} получили код {response.status}")
-
-    return json["prompt"]
+async def get_question() -> None:
+    print('get_question')
+    response = await websocket.recv()
+    await handle_responses(response=response)
 
 async def get_groups_count() -> int:
     url = f"https://unit-hack-2025.onrender.com/game/api/count/"
 
-    async with aiohttp.ClientSession() as session:
-        response = await session.get(url)
-        json = await response.json()
-        print(f"При получении количества групп получили код {response.status}")
+    return 0
 
-    return json["count"]
-
-async def get_answers() -> dict:
-    global answers
-
-    url = f"https://unit-hack-2025.onrender.com/game/api/answer/"
-
-    async with aiohttp.ClientSession() as session:
-        response = await session.get(url)
-        print(await response.json())
-        answers = await response.json()
-        print(f"При получении пары ответов получили код {response.status}")
-
-    return answers
+async def get_answers() -> None:
+    response = await websocket.recv()
+    await handle_responses(response=response)
   
     
 
 async def send_answers_to_user(user_id: int, state: FSMContext):
-    global answers 
-    answers = await get_answers()
+    await get_answers()
 
     first_button = KeyboardButton(text="#1")
     second_button = KeyboardButton(text="#2")
@@ -130,39 +112,69 @@ async def send_answers_to_user(user_id: int, state: FSMContext):
     await state.set_state(Form.voting)    
 
 async def send_user_info(user_id: int, username: str) -> None:
-    url = "https://unit-hack-2025.onrender.com/game/api/connect/"
-    headers = {'Content-Type' : 'application/json'}
-    data = {"telegram_id" : user_id, "username" : username}
+    global websocket
+    data = {"type": "register_player", "telegram_id" : user_id, "username" : username}
+    
+    await websocket.send(json.dumps(data))
+    response = await websocket.recv()
+    print(f"При отправке данных пользователя {user_id} пришёл ответ: {response}")
 
-    async with aiohttp.ClientSession() as session:
-        response = await session.post(url=url, data= json.dumps(data), headers=headers)
-        print(f"При отправке данных пользователя {user_id} пришёл код: {response.status}")
 
 async def send_user_answer(user_id: int, answer: str) -> None:
-    url = "https://unit-hack-2025.onrender.com/game/api/answer/"
-    headers = {'Content-Type' : 'application/json'}
-    data = {"telegram_id" : user_id, "answer" : answer}
+    data = {"type": "send_player_answer", "telegram_id" : user_id, "answer" : answer}
 
-    async with aiohttp.ClientSession() as session:
-        response = await session.post(url=url, data= json.dumps(data), headers=headers)
-        print(f"При отправке ответа пользователя {user_id} пришёл код: {response.status}")
+    await websocket.send(json.dumps(data))
+    response = await websocket.recv()
+
+    print(f"При отправке ответа пользователя {user_id} пришёл ответ: {response}")
+
 
 async def send_vote(voter_id: int, candidate_id: int) -> None:
-    url = "https://unit-hack-2025.onrender.com/game/api/vote/"
-    headers = {'Content-Type' : 'application/json'}
     data = {"voter_id" : voter_id, "candidate_id" : candidate_id}
 
-    async with aiohttp.ClientSession() as session:
-        response = await session.post(url=url, data= json.dumps(data), headers=headers)
-        print(f"При отправке голоса пользователя {voter_id} пришёл код: {response.status}")
+    await websocket.send(json.dumps(data))
+    response = await websocket.recv()
+    print(f"При отправке голоса пользователя {voter_id} пришёл ответ: {response}")
 
 
-# Run the bot
-async def main() -> None:
-    global bot
-    bot = Bot(token=TOKEN)
-    await dp.start_polling(bot)
+async def connect_to_server():
+    global websocket
+    websocket = await websockets.connect("wss://unit-hack-2025.onrender.com/ws/bot/")
+
+    await websocket.send("Подключение")
+    response = await websocket.recv()
+    print(f"Успешное подключение к серверу. Ответ сервера: {response}")
+
+async def start_bot():
+    asyncio.get_event_loop().create_task(dp.start_polling(bot))
+
+async def handle_responses(response: websockets.Data):
+    response = json.loads(response)
+    print(response)
+
+    if(response['type'] == 'receive_players_prompts'):
+        players = response['players']
+        for player in players:
+            await bot.send_message(player['telegram_id'], player['prompt'])
+            print(f'Отправлен вопрос {player['prompt']} для {player['telegram_id']}')
+    elif(response['type'] == 'receive_player_answers'):
+        global answers
+        answers = response
+        print(f'Получена пара ответов {answers}')
+    
+
+
+
+# # Run the bot
+# async def main() -> None:
+#     asyncio.get_event_loop().run_until_complete(connect_to_server())
+#     asyncio.get_event_loop().run_until_complete(start_bot())
+#     asyncio.get_event_loop().run_forever()
+
+    
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.get_event_loop().run_until_complete(connect_to_server())
+    asyncio.get_event_loop().run_until_complete(start_bot())
+    asyncio.get_event_loop().run_forever()
           
