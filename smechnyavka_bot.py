@@ -10,49 +10,46 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from config import TOKEN
 
 global websocket
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 event_loop = asyncio.get_event_loop()
 
 answers = {}
-groups_count = 0
 
 class Form(StatesGroup):
     get_nickname = State()
-    wait_for_answer = State()
+    get_prompt_answer = State()
     voting = State()
-    voted = State()
+    already_voted = State()
     ended = State()
 
 
 
 @dp.message(Command("start"))
 async def command_start_handler(message: Message, state: FSMContext) -> None:
-
     await message.answer("Введите свой никнейм: ")
     await state.set_state(Form.get_nickname)
 
 @dp.message(Form.get_nickname)
 async def process_nickname(message: Message, state: FSMContext) -> None:
-
     await send_user_info(message.chat.id, message.text)
     await message.answer(f"{message.text}, вы в лобби. Ожидайте начала игры.")
-    await process_question(state)
+    
+    await get_questions()
+    await state.set_state(Form.get_prompt_answer)
 
-@dp.message(Form.wait_for_answer)
-async def process_answer(message: Message, state: FSMContext) -> None:
-    answer = message.text
-    await send_user_answer(message.chat.id, answer)
+@dp.message(Form.get_prompt_answer)
+async def process_prompt_answer(message: Message, state: FSMContext) -> None:
+    await send_user_answer(message.chat.id, message.text)
     await message.answer(f"Ваш ответ записан. Ожидаем других игроков.")
 
     await send_answers_to_user(message.chat.id, state)
 
 @dp.message(Form.voting)
-async def process_answer(message: Message, state: FSMContext) -> None:
-    global groups_count
+async def process_vote(message: Message, state: FSMContext) -> None:
     groups_count = await get_groups_count()
+    await state.set_state(Form.already_voted)
 
     if(message.chat.id == answers["answer0"]["telegram_id"] or message.chat.id == answers["answer1"]["telegram_id"]):
         await message.reply("Вы не можете голосовать. Люди судят ваш ответ.")
@@ -63,25 +60,21 @@ async def process_answer(message: Message, state: FSMContext) -> None:
     elif(message.text == "#2"):
         await send_vote(message.chat.id, answers["answer1"]["telegram_id"])
 
-    await state.set_state(Form.voted)
+    #In progress
     if(groups_count > 0):
         await send_answers_to_user(message.chat.id, state)
     else:
         await message.answer("Игра закончена!")
         await state.set_state(Form.ended)
 
-@dp.message(Form.voted)
-async def process_answer(message: Message, state: FSMContext) -> None:
+@dp.message(Form.already_voted)
+async def process_trying_to_vote_again(message: Message, state: FSMContext) -> None:
     message.reply("Вы уже голосовали!")
     await send_answers_to_user(message.chat.id, state)
 
 
 
-async def process_question(state: FSMContext) -> None:
-    await get_question()
-    await state.set_state(Form.wait_for_answer)
-
-async def get_question() -> None:
+async def get_questions() -> None:
     response = await websocket.recv()
     await handle_responses(response=response)
 
@@ -103,17 +96,17 @@ async def send_answers_to_user(user_id: int, state: FSMContext):
     keyboard = ReplyKeyboardMarkup(keyboard=[[first_button, second_button]],resize_keyboard=True)
 
     await bot.send_message(user_id, text="Вопрос: " + answers["prompt"])
-    await bot.send_message(user_id, f"Ответ 1 от {answers["answer0"]["telegram_id"]}: {answers["answer0"]["answer"]}")
-    await bot.send_message(user_id, f"Ответ 2 от {answers["answer1"]["telegram_id"]}: {answers["answer1"]["answer"]}", reply_markup=keyboard)   
+    await bot.send_message(user_id, f"Ответ 1: {answers["answer0"]["answer"]}")
+    await bot.send_message(user_id, f"Ответ 2: {answers["answer1"]["answer"]}", reply_markup=keyboard)   
     await state.set_state(Form.voting)
 
 async def send_user_info(user_id: int, username: str) -> None:
     data = {"type": "register_player", "telegram_id" : user_id, "username" : username}
-    
+
     await websocket.send(json.dumps(data))
     response = await websocket.recv()
-    print(f"При отправке данных пользователя {user_id} пришёл ответ: {response}")
 
+    print(f"При отправке данных пользователя {user_id} пришёл ответ: {response}")
 
 async def send_user_answer(user_id: int, answer: str) -> None:
     data = {"type": "send_player_answer", "telegram_id" : user_id, "answer" : answer}
@@ -123,13 +116,33 @@ async def send_user_answer(user_id: int, answer: str) -> None:
 
     print(f"При отправке ответа пользователя {user_id} пришёл ответ: {response}")
 
-
 async def send_vote(voter_id: int, candidate_id: int) -> None:
     data = {"voter_id" : voter_id, "candidate_id" : candidate_id}
 
     await websocket.send(json.dumps(data))
     response = await websocket.recv()
+
     print(f"При отправке голоса пользователя {voter_id} пришёл ответ: {response}")
+
+
+
+async def handle_responses(response: websockets.Data):
+    response = json.loads(response)
+    print(f'Получен ответ: {response}')
+
+    if('type' in response.keys() and response['type'] == 'receive_players_prompts'):
+        players = response['players']
+
+        for player in players:
+            await bot.send_message(player['telegram_id'], player['prompt'])
+            print(f'Отправлен вопрос {player['prompt']} для {player['telegram_id']}')   
+    elif('type' in response.keys() and response['type'] == 'receive_player_answers'):
+        global answers
+        answers = response
+        print(f'Получена пара ответов {answers}')
+    elif('status' in response.keys()):
+        print(f'Получен статус {response['status']}')
+        
 
 
 async def connect_to_server():
@@ -142,23 +155,6 @@ async def connect_to_server():
 
 async def start_bot():
     asyncio.get_event_loop().create_task(dp.start_polling(bot))
-
-async def handle_responses(response: websockets.Data):
-    response = json.loads(response)
-    print(response)
-
-    if('type' in response.keys() and response['type'] == 'receive_players_prompts'):
-        players = response['players']
-        for player in players:
-            await bot.send_message(player['telegram_id'], player['prompt'])
-            print(f'Отправлен вопрос {player['prompt']} для {player['telegram_id']}')
-    elif('type' in response.keys() and response['type'] == 'receive_player_answers'):
-        global answers
-        answers = response
-        print(f'Получена пара ответов {answers}')
-    elif('status' in response.keys()):
-        print(f'Получен статус {response['status']}')
-
 
 
 if __name__ == "__main__":
