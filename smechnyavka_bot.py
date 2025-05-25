@@ -14,7 +14,6 @@ global websocket
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-
 event_loop = asyncio.get_event_loop()
 
 answers = {}
@@ -48,7 +47,7 @@ async def process_answer(message: Message, state: FSMContext) -> None:
     await send_user_answer(message.chat.id, answer)
     await message.answer(f"Ваш ответ записан. Ожидаем других игроков.")
 
-    #await send_answers_to_user(message.chat.id, state)
+    await send_answers_to_user(message.chat.id, state)
 
 @dp.message(Form.voting)
 async def process_answer(message: Message, state: FSMContext) -> None:
@@ -83,13 +82,11 @@ async def process_question(state: FSMContext) -> None:
     await state.set_state(Form.wait_for_answer)
 
 async def get_question() -> None:
-    print('get_question')
     response = await websocket.recv()
     await handle_responses(response=response)
 
+#In progress
 async def get_groups_count() -> int:
-    url = f"https://unit-hack-2025.onrender.com/game/api/count/"
-
     return 0
 
 async def get_answers() -> None:
@@ -107,12 +104,10 @@ async def send_answers_to_user(user_id: int, state: FSMContext):
 
     await bot.send_message(user_id, text="Вопрос: " + answers["prompt"])
     await bot.send_message(user_id, f"Ответ 1 от {answers["answer0"]["telegram_id"]}: {answers["answer0"]["answer"]}")
-    await bot.send_message(user_id, f"Ответ 2 от {answers["answer1"]["telegram_id"]}: {answers["answer1"]["answer"]}", reply_markup=keyboard)
-
-    await state.set_state(Form.voting)    
+    await bot.send_message(user_id, f"Ответ 2 от {answers["answer1"]["telegram_id"]}: {answers["answer1"]["answer"]}", reply_markup=keyboard)   
+    await state.set_state(Form.voting)
 
 async def send_user_info(user_id: int, username: str) -> None:
-    global websocket
     data = {"type": "register_player", "telegram_id" : user_id, "username" : username}
     
     await websocket.send(json.dumps(data))
@@ -152,26 +147,19 @@ async def handle_responses(response: websockets.Data):
     response = json.loads(response)
     print(response)
 
-    if(response['type'] == 'receive_players_prompts'):
+    if('type' in response.keys() and response['type'] == 'receive_players_prompts'):
         players = response['players']
         for player in players:
             await bot.send_message(player['telegram_id'], player['prompt'])
             print(f'Отправлен вопрос {player['prompt']} для {player['telegram_id']}')
-    elif(response['type'] == 'receive_player_answers'):
+    elif('type' in response.keys() and response['type'] == 'receive_player_answers'):
         global answers
         answers = response
         print(f'Получена пара ответов {answers}')
-    
+    elif('status' in response.keys()):
+        print(f'Получен статус {response['status']}')
 
 
-
-# # Run the bot
-# async def main() -> None:
-#     asyncio.get_event_loop().run_until_complete(connect_to_server())
-#     asyncio.get_event_loop().run_until_complete(start_bot())
-#     asyncio.get_event_loop().run_forever()
-
-    
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(connect_to_server())
